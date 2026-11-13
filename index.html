@@ -32,6 +32,8 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 .row{display:grid;grid-template-columns:1fr 70px 90px 34px;gap:6px;margin-bottom:6px}
 .row input{margin:0}
 #lc-ads-widget{bottom:86px!important}body.noads #lc-ads-widget{display:none!important}
+#logo,#logoPrev{display:block;max-height:80px;max-width:60%;margin:4px 0 8px;border-radius:10px}
+a{color:var(--ac);font-weight:700}
 .link{background:none;border:0;color:var(--mut);font-size:12px;text-decoration:underline;margin-top:24px;display:block}
 </style>
 </head>
@@ -50,7 +52,8 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
   <div class="card">
     <input id="sp" type="password" placeholder="Tu contraseña maestra">
     <input id="ns" placeholder="Código del negocio (a-z, 0-9, guion)" autocapitalize="none" autocorrect="off">
-    <input id="np" placeholder="Contraseña del dueño (mín. 6)">
+    <input id="np" placeholder="Contraseña temporal del dueño (mín. 6)">
+    <input id="nw" inputmode="numeric" placeholder="WhatsApp del dueño (10 dígitos o 52…)">
     <button class="big ok" id="mk">Crear / cambiar contraseña</button>
     <button class="big sec" id="ls">Ver negocios</button>
     <button class="big sec" id="rm">Borrar negocio (el del campo código)</button>
@@ -61,6 +64,7 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
   </div>
 </main>
 <main id="cli">
+  <img id="logo" class="hide" alt="">
   <h1 id="name">Menú</h1>
   <div class="chips" id="chips"></div>
   <div class="card" id="menu"></div>
@@ -106,6 +110,18 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
     <input id="a-cla" inputmode="numeric" placeholder="CLABE de Mercado Pago">
   </div>
   <div class="card">
+    <b>Logotipo de tu negocio</b>
+    <img id="logoPrev" class="hide" alt="">
+    <input id="logoIn" type="file" accept="image/*">
+    <button class="big sec" id="logoDel">Quitar logotipo</button>
+    <p class="mut">Se guarda al tocar "Guardar cambios".</p>
+  </div>
+  <div class="card">
+    <b>Cambiar mi contraseña</b>
+    <input id="pw1" type="password" placeholder="Nueva contraseña (mín. 6)">
+    <button class="big sec" id="pwBtn">Cambiar contraseña</button>
+  </div>
+  <div class="card">
     <b>Productos y precios</b>
     <p class="mut">Nombre · precio · categoría</p>
     <div id="edit"></div>
@@ -117,7 +133,7 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 
 <script>
 /* ===== CONFIGURA AQUÍ ===== */
-const WORKER = 'https://pedidos.paragugliar.workers.dev';   // URL de tu worker
+const WORKER = 'https://TU-WORKER.workers.dev'.trim().replace(/\/+$/, '');   // URL de tu worker
 /* ========================== */
 
 const $ = id => document.getElementById(id);
@@ -145,6 +161,7 @@ const total = () => lines().reduce((s, l) => s + l.p * l.q, 0);
 
 function renderC() {
   document.title = S.name; $('name').textContent = S.name;
+  if (S.logo) { $('logo').src = S.logo; $('logo').classList.remove('hide') } else $('logo').classList.add('hide');
   const cats = ['Todos', ...new Set(S.items.map(i => i.c).filter(Boolean))];
   if (!cats.includes(cat)) cat = 'Todos';
   $('chips').innerHTML = cats.map(c => `<button class="${c===cat?'on':''}" data-c="${esc(c)}">${esc(c)}</button>`).join('');
@@ -208,7 +225,28 @@ $('waBtn').onclick = async () => {
 /* ---------- DUEÑO ---------- */
 const linkC = () => location.origin + location.pathname + '?n=' + N;
 $('cplnk').onclick = async () => { try { await navigator.clipboard.writeText(linkC()); $('cplnk').textContent = 'Copiado ✓' } catch (e) { prompt('Copia tu enlace:', linkC()) } };
-function fillA() { $('lnk').textContent = linkC(); $('a-name').value=S.name; $('a-wa').value=S.whatsapp; $('a-tit').value=S.pay.titular; $('a-ban').value=S.pay.banco; $('a-cla').value=S.pay.clabe }
+$('logoIn').onchange = () => {
+  const f = $('logoIn').files[0]; if (!f) return;
+  const img = new Image(), u = URL.createObjectURL(f);
+  img.onload = () => {
+    const k = Math.min(1, 240 / Math.max(img.width, img.height)), c = document.createElement('canvas');
+    c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    let d = c.toDataURL('image/png'); if (d.length > 140000) d = c.toDataURL('image/jpeg', 0.8);
+    URL.revokeObjectURL(u);
+    if (d.length > 149000) { alert('La imagen es muy pesada, usa una más sencilla'); return }
+    S.logo = d; $('logoPrev').src = d; $('logoPrev').classList.remove('hide');
+  };
+  img.onerror = () => alert('No se pudo leer esa imagen');
+  img.src = u;
+};
+$('logoDel').onclick = () => { S.logo = ''; $('logoPrev').classList.add('hide'); $('logoIn').value = '' };
+$('pwBtn').onclick = async () => {
+  const np = $('pw1').value;
+  if (np.length < 6) { alert('La contraseña debe tener al menos 6 caracteres'); return }
+  try { await api('/password', { method:'POST', body: JSON.stringify({ password: np }) }); pass = np; $('pw1').value = ''; alert('Contraseña cambiada ✓') } catch (e) { alert('No se pudo cambiar la contraseña') }
+};
+function fillA() { if (S.logo) { $('logoPrev').src = S.logo; $('logoPrev').classList.remove('hide') } else $('logoPrev').classList.add('hide'); $('lnk').textContent = linkC(); $('a-name').value=S.name; $('a-wa').value=S.whatsapp; $('a-tit').value=S.pay.titular; $('a-ban').value=S.pay.banco; $('a-cla').value=S.pay.clabe }
 function renderA() {
   $('edit').innerHTML = S.items.map(i => `<div class="row" data-i="${esc(i.id)}"><input data-f="n" value="${esc(i.n)}"><input data-f="p" type="number" inputmode="decimal" value="${i.p}"><input data-f="c" value="${esc(i.c||'')}"><button class="big sec" style="margin:0;padding:0" data-x="${esc(i.id)}">✕</button></div>`).join('');
   $('edit').querySelectorAll('input').forEach(inp => inp.oninput = () => {
@@ -240,14 +278,27 @@ async function sapi(path, body) {
   const r = await fetch(WORKER + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type':'application/json', 'X-Super-Pass': $('sp').value }, body: body ? JSON.stringify(body) : undefined });
   if (!r.ok) throw new Error(r.status); return r.json();
 }
-const serr = e => e.message === '401' ? 'Contraseña maestra incorrecta' : 'Error (' + e.message + '). Revisa el código (a-z, 0-9, guion) y que la contraseña tenga 6+ caracteres';
+const serr = e => e.message === '401' ? 'Contraseña maestra incorrecta' : e.message === '404' ? 'No se encontró el worker o la ruta (404). Revisa que la URL en WORKER no termine en / y que hayas desplegado el worker nuevo' : 'Error (' + e.message + '). Revisa el código (a-z, 0-9, guion) y que la contraseña tenga 6+ caracteres';
 function showAlta() { ads(false); ['cod','cli','adm'].forEach(x => $(x).classList.add('hide')); $('duenio').classList.add('hide'); $('bar').classList.add('hide'); $('sup').classList.remove('hide') }
 let altaOnce = new URLSearchParams(location.search).has('alta') || location.hash === '#alta';
 $('supBtn').onclick = showAlta;
 let taps = 0, tapT = 0;   // 5 toques seguidos al título también abren el alta
 $('name').onclick = () => { const n = Date.now(); taps = (n - tapT < 2000) ? taps + 1 : 1; tapT = n; if (taps >= 5) { taps = 0; showAlta() } };
 $('vol').onclick = () => { $('sup').classList.add('hide'); init() };
-$('mk').onclick = async () => { try { const slug = norm($('ns').value); $('ns').value = slug; await sapi('/admin/create', { slug, password: $('np').value }); N = slug; lsSet('pv_n', slug); const lk = location.origin + location.pathname + '?n=' + slug; let cp = ''; try { await navigator.clipboard.writeText(lk); cp = ' (copiado)' } catch (e) {} alert('Negocio creado ✓\nEnlace para tus clientes' + cp + ':\n' + lk); init() } catch (e) { $('so').textContent = serr(e) } };
+$('mk').onclick = async () => {
+  try {
+    const slug = norm($('ns').value); $('ns').value = slug;
+    let d = $('nw').value.replace(/\D/g, ''); if (d.length === 10) d = '52' + d;
+    await sapi('/admin/create', { slug, password: $('np').value, whatsapp: d });
+    N = slug; lsSet('pv_n', slug);
+    const lk = location.origin + location.pathname + '?n=' + slug; let cp = '';
+    try { await navigator.clipboard.writeText(lk); cp = ' (copiado)' } catch (e) {}
+    if (d.length >= 11) {
+      const msg = 'Hola 👋 ya diste de alta tu menú digital ✅\nNegocio: ' + slug + '\nEnlace para tus clientes: ' + lk + '\nPara cambiar precios, productos, logotipo y datos: abre el enlace, baja hasta "Acceso dueño" y entra con tu contraseña temporal: ' + $('np').value + '\nCámbiala al entrar.';
+      $('so').innerHTML = '✓ Negocio creado.<br>Enlace' + cp + ': <b>' + esc(lk) + '</b><br><br><a href="https://wa.me/' + d + '?text=' + encodeURIComponent(msg) + '" target="_blank" rel="noopener">📲 Enviar acceso al WhatsApp del dueño</a><br><br>Al terminar toca "← Volver" para ver el menú del cliente.';
+    } else { alert('Negocio creado ✓\nEnlace para tus clientes' + cp + ':\n' + lk); init() }
+  } catch (e) { $('so').textContent = serr(e) }
+};
 $('ls').onclick = async () => { try { const r = await sapi('/admin/list'); $('so').innerHTML = r.slugs.length ? r.slugs.map(esc).join('<br>') : 'Aún no hay negocios' } catch (e) { $('so').textContent = serr(e) } };
 $('rm').onclick = async () => { const slug = norm($('ns').value); if (!slug || !confirm('¿Borrar ' + slug + '?')) return; try { await sapi('/admin/delete', { slug }); $('so').textContent = 'Borrado ✓' } catch (e) { $('so').textContent = serr(e) } };
 
