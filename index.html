@@ -231,7 +231,11 @@ async function sapi(path, body) {
   if (!r.ok) throw new Error(r.status); return r.json();
 }
 const serr = e => e.message === '401' ? 'Contraseña maestra incorrecta' : 'Error (' + e.message + '). Revisa el código (a-z, 0-9, guion) y que la contraseña tenga 6+ caracteres';
-$('supBtn').onclick = () => { ads(false); $('cod').classList.add('hide'); $('sup').classList.remove('hide') };
+function showAlta() { ads(false); ['cod','cli','adm'].forEach(x => $(x).classList.add('hide')); $('duenio').classList.add('hide'); $('bar').classList.add('hide'); $('sup').classList.remove('hide') }
+let altaOnce = new URLSearchParams(location.search).has('alta') || location.hash === '#alta';
+$('supBtn').onclick = showAlta;
+let taps = 0, tapT = 0;   // 5 toques seguidos al título también abren el alta
+$('name').onclick = () => { const n = Date.now(); taps = (n - tapT < 2000) ? taps + 1 : 1; tapT = n; if (taps >= 5) { taps = 0; showAlta() } };
 $('vol').onclick = () => { $('sup').classList.add('hide'); init() };
 $('mk').onclick = async () => { try { const slug = norm($('ns').value); $('ns').value = slug; await sapi('/admin/create', { slug, password: $('np').value }); N = slug; lsSet('pv_n', slug); const lk = location.origin + location.pathname + '?n=' + slug; let cp = ''; try { await navigator.clipboard.writeText(lk); cp = ' (copiado)' } catch (e) {} alert('Negocio creado ✓\nEnlace para tus clientes' + cp + ':\n' + lk); init() } catch (e) { $('so').textContent = serr(e) } };
 $('ls').onclick = async () => { try { const r = await sapi('/admin/list'); $('so').innerHTML = r.slugs.length ? r.slugs.map(esc).join('<br>') : 'Aún no hay negocios' } catch (e) { $('so').textContent = serr(e) } };
@@ -257,6 +261,7 @@ $('codBtn').onclick = () => {
   N = v; lsSet('pv_n', v); init();
 };
 async function init() {
+  if (altaOnce) { altaOnce = false; showAlta(); return }
   $('cod').classList.add('hide'); $('sup').classList.add('hide');
   if (!N && !demo) { ads(false); $('cli').classList.add('hide'); $('duenio').classList.add('hide'); $('bar').classList.add('hide'); $('cod').classList.remove('hide'); return }
   $('cli').classList.remove('hide'); $('duenio').classList.remove('hide'); ads(true);
