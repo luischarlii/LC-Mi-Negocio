@@ -55,6 +55,8 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
     <button class="big sec" id="ls">Ver negocios</button>
     <button class="big sec" id="rm">Borrar negocio (el del campo código)</button>
     <button class="big sec" id="vol">← Volver</button>
+    <textarea id="vr" rows="3" placeholder="Pega aquí el mensaje del pedido o su Ref"></textarea>
+    <button class="big sec" id="vf">Verificar pedido</button>
     <p id="so" class="mut"></p>
   </div>
 </main>
@@ -71,11 +73,8 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
       <input id="cname" placeholder="Tu nombre" autocomplete="name">
       <textarea id="notes" rows="2" placeholder="Notas (sin cebolla, para llevar…)"></textarea>
       <div class="pay" id="paybox"></div>
-      <p class="mut">1) Haz la transferencia por el monto exacto. 2) Toma captura del comprobante. 3) Envíalo con tu pedido por WhatsApp.</p>
-      <label class="mut">Foto del comprobante</label>
-      <input id="comp" type="file" accept="image/*">
-      <button class="big ok" id="shareBtn">Enviar pedido con comprobante</button>
-      <button class="big sec" id="waBtn">Enviar solo el pedido (adjunto el comprobante en el chat)</button>
+      <p class="mut">1) Haz la transferencia por el monto exacto. 2) Toma captura del comprobante. 3) Toca el botón: se abre WhatsApp con tu pedido; adjunta ahí tu captura y envía.</p>
+      <button class="big ok" id="waBtn">Enviar pedido por WhatsApp</button>
       <button class="big sec" id="back">← Seguir pidiendo</button>
     </div>
   </section>
@@ -118,7 +117,7 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 
 <script>
 /* ===== CONFIGURA AQUÍ ===== */
-const WORKER = 'https://pedidos.paragugliar.workers.dev';   // URL de tu worker
+const WORKER = 'https://TU-WORKER.workers.dev';   // URL de tu worker
 /* ========================== */
 
 const $ = id => document.getElementById(id);
@@ -160,12 +159,12 @@ function renderC() {
   $('ver').textContent = 'Ver pedido · ' + money(t);
 }
 
-function message() {
+function message(ref, tot) {
   const ls = lines().map(l => `• ${l.q} x ${l.n} — ${money(l.p*l.q)}`).join('\n');
   const notes = $('notes').value.trim();
-  return `🧾 *Pedido #${orderNum}* — ${S.name}\nCliente: ${$('cname').value.trim()}\n${ls}\n*Total: ${money(total())}*\nPago: transferencia a ${S.pay.banco||'Mercado Pago'} (comprobante adjunto)` + (notes ? `\nNotas: ${notes}` : '');
+  return `🧾 *Pedido #${orderNum}* — ${S.name}\nCliente: ${$('cname').value.trim()}\n${ls}\n*Total: ${money(tot)}*\nPago: transferencia a ${S.pay.banco||'Mercado Pago'} (comprobante en este chat)` + (notes ? `\nNotas: ${notes}` : '') + (ref ? `\n🔐 Ref: ${ref}` : '');
 }
-function waUrl() { return 'https://wa.me/' + String(S.whatsapp).replace(/\D/g,'') + '?text=' + encodeURIComponent(message()) }
+function waUrl(ref, tot) { return 'https://wa.me/' + String(S.whatsapp).replace(/\D/g,'') + '?text=' + encodeURIComponent(message(ref, tot)) }
 function validar() {
   if (!$('cname').value.trim()) { alert('Escribe tu nombre'); return false }
   if (!S.whatsapp) { alert('El negocio aún no configura su WhatsApp'); return false }
@@ -185,14 +184,25 @@ $('ver').onclick = () => {
   scrollTo(0, 0);
 };
 $('back').onclick = () => { $('ord').classList.add('hide'); $('menu').classList.remove('hide'); $('chips').classList.remove('hide'); renderC() };
-$('waBtn').onclick = () => { if (!validar()) return; open(waUrl(), '_blank'); terminar() };
-$('shareBtn').onclick = async () => {
+$('waBtn').onclick = async () => {
   if (!validar()) return;
-  const f = $('comp').files[0];
-  if (!f) { alert('Selecciona la foto de tu comprobante o usa el otro botón'); return }
-  if (navigator.canShare && navigator.canShare({ files:[f] })) {
-    try { await navigator.share({ files:[f], text: message() }); terminar() } catch (e) {}
-  } else { alert('Tu navegador no permite adjuntar desde aquí. Se abrirá WhatsApp con el pedido; adjunta el comprobante en el chat.'); open(waUrl(), '_blank'); terminar() }
+  const btn = $('waBtn'); btn.disabled = true; btn.textContent = 'Generando pedido…';
+  const w = window.open('', '_blank');
+  const go = u => { if (w) w.location.href = u; else location.href = u };
+  try {
+    let ref = '', tot = total();
+    if (!demo) {
+      const r = await api('/order', { method:'POST', body: JSON.stringify({ num: orderNum, items: Object.keys(cart).map(id => ({ id, q: cart[id] })) }) });
+      ref = r.ref;
+      if (Math.abs(r.total - tot) > 0.009) {
+        if (w) w.close();
+        try { S = await api('/menu'); lsSet('pv_cache_' + N, S) } catch (e) {}
+        alert('Los precios se actualizaron. Revisa tu pedido.'); $('back').onclick(); return;
+      }
+    }
+    go(waUrl(ref, tot)); terminar();
+  } catch (e) { if (w) w.close(); alert('No se pudo generar tu pedido. Revisa tu conexión e intenta de nuevo.') }
+  finally { btn.disabled = false; btn.textContent = 'Enviar pedido por WhatsApp' }
 };
 
 /* ---------- DUEÑO ---------- */
@@ -253,6 +263,18 @@ function ads(on) {
     document.body.appendChild(sc);
   }
 }
+
+$('vf').onclick = async () => {
+  const txt = $('vr').value, m = txt.match(/([a-z0-9-]+\.\d{4}\.\d+\.\d{6}\.[0-9A-Za-z]{10})/);
+  if (!m) { $('so').textContent = 'No encontré una Ref en ese texto'; return }
+  try {
+    const r = await sapi('/admin/verify', { ref: m[1] });
+    if (!r.ok) { $('so').innerHTML = '❌ <b>Ref NO válida</b>: este pedido no fue generado por tu app.'; return }
+    const tm = txt.match(/Total:\s*\$?\s*([\d.,]+)/); let warn = '';
+    if (tm) { const shown = parseFloat(tm[1].replace(/,/g, '')); if (Math.abs(shown - r.total) > 0.009) warn = '<br>⚠️ El total del mensaje (' + money(shown) + ') no coincide con el firmado.' }
+    $('so').innerHTML = '✅ <b>Pedido genuino</b><br>Negocio: ' + esc(r.slug) + '<br>Pedido #' + esc(r.num) + '<br>Total: ' + money(r.total) + '<br>Fecha: ' + esc(r.date) + warn;
+  } catch (e) { $('so').textContent = serr(e) }
+};
 
 /* ---------- INICIO + CONTADOR ---------- */
 $('codBtn').onclick = () => {
