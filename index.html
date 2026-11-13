@@ -31,6 +31,7 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 .pay{background:var(--bg);border-radius:10px;padding:10px;margin-top:10px;line-height:1.6}
 .row{display:grid;grid-template-columns:1fr 70px 90px 34px;gap:6px;margin-bottom:6px}
 .row input{margin:0}
+#lc-ads-widget{bottom:86px!important}body.noads #lc-ads-widget{display:none!important}
 .link{background:none;border:0;color:var(--mut);font-size:12px;text-decoration:underline;margin-top:24px;display:block}
 </style>
 </head>
@@ -81,15 +82,18 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 </main>
 <div class="bar hide" id="bar"><button id="ver">Ver pedido</button></div>
 
-<!-- LC-Ads: cambia la URL por donde tienes alojado tu lc-ads.js (ads.json debe estar en la misma carpeta) -->
-<style>#lc-ads-widget{bottom:86px!important}</style>
-<script src="https://luischarlii.github.io/LC-Ads/lc-ads.js" data-app="punto-de-venta"></script>
+<!-- LC-Ads: se carga por JavaScript solo en el menú del cliente (ver función ads) -->
 
 <button class="link" id="duenio">Acceso dueño</button>
 
 <!-- ============ VISTA DUEÑO ============ -->
 <main id="adm" class="hide">
   <h1>Panel del dueño</h1>
+  <div class="card">
+    <b>Enlace para tus clientes</b>
+    <p id="lnk" class="mut" style="word-break:break-all"></p>
+    <button class="big sec" id="cplnk">Copiar enlace</button>
+  </div>
   <div class="card">
     <b>Usuarios únicos (últimos 7 días)</b>
     <div id="stats" class="mut">Cargando…</div>
@@ -114,7 +118,7 @@ input,textarea{width:100%;padding:10px;border:1px solid var(--bd);border-radius:
 
 <script>
 /* ===== CONFIGURA AQUÍ ===== */
-const WORKER = 'https://pedidos.paragugliar.workers.dev';   // URL de tu worker
+const WORKER = 'https://TU-WORKER.workers.dev';   // URL de tu worker
 /* ========================== */
 
 const $ = id => document.getElementById(id);
@@ -192,7 +196,9 @@ $('shareBtn').onclick = async () => {
 };
 
 /* ---------- DUEÑO ---------- */
-function fillA() { $('a-name').value=S.name; $('a-wa').value=S.whatsapp; $('a-tit').value=S.pay.titular; $('a-ban').value=S.pay.banco; $('a-cla').value=S.pay.clabe }
+const linkC = () => location.origin + location.pathname + '?n=' + N;
+$('cplnk').onclick = async () => { try { await navigator.clipboard.writeText(linkC()); $('cplnk').textContent = 'Copiado ✓' } catch (e) { prompt('Copia tu enlace:', linkC()) } };
+function fillA() { $('lnk').textContent = linkC(); $('a-name').value=S.name; $('a-wa').value=S.whatsapp; $('a-tit').value=S.pay.titular; $('a-ban').value=S.pay.banco; $('a-cla').value=S.pay.clabe }
 function renderA() {
   $('edit').innerHTML = S.items.map(i => `<div class="row" data-i="${esc(i.id)}"><input data-f="n" value="${esc(i.n)}"><input data-f="p" type="number" inputmode="decimal" value="${i.p}"><input data-f="c" value="${esc(i.c||'')}"><button class="big sec" style="margin:0;padding:0" data-x="${esc(i.id)}">✕</button></div>`).join('');
   $('edit').querySelectorAll('input').forEach(inp => inp.oninput = () => {
@@ -206,7 +212,7 @@ $('duenio').onclick = async () => {
   const p = prompt('Contraseña del dueño'); if (!p) return;
   pass = p;
   try { await api('/login') } catch (e) { pass = ''; alert(e.message === '401' ? 'Contraseña incorrecta' : 'No se pudo conectar con el worker (' + e.message + '). Revisa la URL en WORKER y que el worker esté desplegado.'); return }
-  $('cli').classList.add('hide'); $('bar').classList.add('hide'); $('duenio').classList.add('hide'); $('adm').classList.remove('hide');
+  ads(false); $('cli').classList.add('hide'); $('bar').classList.add('hide'); $('duenio').classList.add('hide'); $('adm').classList.remove('hide');
   fillA(); renderA();
   try { const st = await api('/stats'); $('stats').innerHTML = st.days.map(d => `${d.d}: <b>${d.n}</b>`).join('<br>') } catch (e) { $('stats').textContent = 'No disponible' }
 };
@@ -215,7 +221,7 @@ $('save').onclick = async () => {
   S.pay = { titular:$('a-tit').value.trim(), banco:$('a-ban').value.trim(), clabe:$('a-cla').value.replace(/\s/g,'') };
   try { await api('/menu', { method:'POST', body: JSON.stringify(S) }); lsSet('pv_cache_' + N, S); alert('Guardado ✓') } catch (e) { alert('No se pudo guardar') }
 };
-$('salir').onclick = () => { pass = ''; $('adm').classList.add('hide'); $('cli').classList.remove('hide'); $('duenio').classList.remove('hide'); renderC() };
+$('salir').onclick = () => { pass = ''; $('adm').classList.add('hide'); $('cli').classList.remove('hide'); $('duenio').classList.remove('hide'); ads(true); renderC() };
 
 /* ---------- ALTA DE NEGOCIOS (solo tú) ---------- */
 const norm = x => { x = String(x || ''); const m = x.match(/[?&]n=([^&#\s]+)/); if (m) x = m[1];
@@ -225,11 +231,24 @@ async function sapi(path, body) {
   if (!r.ok) throw new Error(r.status); return r.json();
 }
 const serr = e => e.message === '401' ? 'Contraseña maestra incorrecta' : 'Error (' + e.message + '). Revisa el código (a-z, 0-9, guion) y que la contraseña tenga 6+ caracteres';
-$('supBtn').onclick = () => { $('cod').classList.add('hide'); $('sup').classList.remove('hide') };
+$('supBtn').onclick = () => { ads(false); $('cod').classList.add('hide'); $('sup').classList.remove('hide') };
 $('vol').onclick = () => { $('sup').classList.add('hide'); init() };
-$('mk').onclick = async () => { try { const slug = norm($('ns').value); $('ns').value = slug; await sapi('/admin/create', { slug, password: $('np').value }); $('so').innerHTML = '✓ Listo.<br>Código: <b>' + esc(slug) + '</b><br>Enlace: <b>' + esc(location.origin + location.pathname + '?n=' + slug) + '</b>' } catch (e) { $('so').textContent = serr(e) } };
+$('mk').onclick = async () => { try { const slug = norm($('ns').value); $('ns').value = slug; await sapi('/admin/create', { slug, password: $('np').value }); N = slug; lsSet('pv_n', slug); const lk = location.origin + location.pathname + '?n=' + slug; let cp = ''; try { await navigator.clipboard.writeText(lk); cp = ' (copiado)' } catch (e) {} alert('Negocio creado ✓\nEnlace para tus clientes' + cp + ':\n' + lk); init() } catch (e) { $('so').textContent = serr(e) } };
 $('ls').onclick = async () => { try { const r = await sapi('/admin/list'); $('so').innerHTML = r.slugs.length ? r.slugs.map(esc).join('<br>') : 'Aún no hay negocios' } catch (e) { $('so').textContent = serr(e) } };
 $('rm').onclick = async () => { const slug = norm($('ns').value); if (!slug || !confirm('¿Borrar ' + slug + '?')) return; try { await sapi('/admin/delete', { slug }); $('so').textContent = 'Borrado ✓' } catch (e) { $('so').textContent = serr(e) } };
+
+/* ---------- LC-ADS: solo para el consumidor ---------- */
+let adsLoaded = false;
+function ads(on) {
+  document.body.classList.toggle('noads', !on);
+  if (on && !adsLoaded && !demo) {
+    adsLoaded = true;
+    const sc = document.createElement('script');
+    sc.src = 'https://luischarlii.github.io/LC-Ads/lc-ads.js';
+    sc.dataset.app = 'punto-de-venta';
+    document.body.appendChild(sc);
+  }
+}
 
 /* ---------- INICIO + CONTADOR ---------- */
 $('codBtn').onclick = () => {
@@ -239,8 +258,8 @@ $('codBtn').onclick = () => {
 };
 async function init() {
   $('cod').classList.add('hide'); $('sup').classList.add('hide');
-  if (!N && !demo) { $('cli').classList.add('hide'); $('duenio').classList.add('hide'); $('bar').classList.add('hide'); $('cod').classList.remove('hide'); return }
-  $('cli').classList.remove('hide'); $('duenio').classList.remove('hide');
+  if (!N && !demo) { ads(false); $('cli').classList.add('hide'); $('duenio').classList.add('hide'); $('bar').classList.add('hide'); $('cod').classList.remove('hide'); return }
+  $('cli').classList.remove('hide'); $('duenio').classList.remove('hide'); ads(true);
   S = lsGet('pv_cache_' + N, S);
   if (!demo) {
     try { S = await api('/menu'); lsSet('pv_cache_' + N, S) }
